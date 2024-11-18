@@ -28,3 +28,4 @@ Responsible for handling requests from the Slack Server. It opens a "/slack/even
 The callback url should be accessible from the internet in order for Slack to send requests to it. I used [ngrok](https://dashboard.ngrok.com/get-started/setup/linux) to implement it.
 
 
+https://github.com/user-attachments/assets/9ef0d151-f7f1-47fb-97fb-f0b6e2c29d51
