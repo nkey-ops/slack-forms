@@ -6,24 +6,19 @@ In order to run the application you need two environment variables:
 This application creates a bug submission form that consists of several fields and prints them out as a log message with output 
 
 
-    2024-11-18T18:13:41.365+04:00  INFO 15951 --- [nio-8080-exec-4] slack_forms.DemoApplication              : 
-
-    Bug Request Form:
-    Bug Found on: 2024-11-17T00:00:00Z
-    Bug Status: In Progress
-    Bug Priority: Medium
-    Description: description
-    Reproduction Steps: reproduction steps
+    Ticket Progress Form
+    Fix ui on the front page : In Progress
+    Develop implementation of the scheduler : In Progress
+    Fix deployment issues : Blocked 
+    What holds up? : The tasks are difficult
 
 
-/src/main/java/slack_forms/DemoApplication.java contains an App bean that defines all the form-management logic. It also has a buildView() method that returns the View of the form.
-
-This application supports an Interactive Global Shortcut with callback id "bug-form" that allows you to create a Bug Submission Form and send its information to the server.
-
-So, you need to create an Interactive Global Shortcut with Location: Global, CallbackId: "bug-form" and Request URL: "https://{your app's public URL domain}/slack/events" 
+/src/main/java/slack_forms/DemoApplication.java contains an App bean that defines all the form-management logic. It has a scheduleForms methods that will will be called at 18:00 (06:00 pm) to send messages to all users in the workspace that have confirmed their email address. After the user submits the form, the results of the form will be logged and the message in chat between the user and the bot will be edited confirming the submission and removing the form itself.
 
 /src/main/java/slack_forms/SlackAppController.java
 Responsible for handling requests from the Slack Server. It opens a "/slack/events" callback url and sends requests to App bean defined in DemoApplication class in order to handle them.
+
+In order to received the callback a request url should be set for the bot on slack with form: "https://{your app's public URL domain}/slack/events" 
 
 The callback url should be accessible from the internet in order for Slack to send requests to it. I used [ngrok](https://dashboard.ngrok.com/get-started/setup/linux) to implement it.
 

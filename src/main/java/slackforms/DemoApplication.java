@@ -1,26 +1,30 @@
 package slackforms;
 
-import static com.slack.api.model.block.Blocks.asBlocks;
 import static com.slack.api.model.block.Blocks.input;
 import static com.slack.api.model.block.Blocks.section;
 import static com.slack.api.model.block.composition.BlockCompositions.asOptions;
 import static com.slack.api.model.block.composition.BlockCompositions.markdownText;
 import static com.slack.api.model.block.composition.BlockCompositions.option;
 import static com.slack.api.model.block.composition.BlockCompositions.plainText;
-import static com.slack.api.model.block.element.BlockElements.datetimePicker;
+import static com.slack.api.model.block.element.BlockElements.button;
 import static com.slack.api.model.block.element.BlockElements.plainTextInput;
 import static com.slack.api.model.block.element.BlockElements.staticSelect;
-import static com.slack.api.model.view.Views.view;
-import static com.slack.api.model.view.Views.viewClose;
-import static com.slack.api.model.view.Views.viewSubmit;
-import static com.slack.api.model.view.Views.viewTitle;
 
 import com.slack.api.bolt.App;
 import com.slack.api.bolt.AppConfig;
-import com.slack.api.bolt.response.Response;
-import com.slack.api.methods.response.views.ViewsOpenResponse;
-import com.slack.api.model.view.View;
-import java.time.Instant;
+import com.slack.api.bolt.request.builtin.BlockActionRequest;
+import com.slack.api.methods.SlackApiException;
+import com.slack.api.methods.request.users.UsersListRequest;
+import com.slack.api.methods.response.users.UsersListResponse;
+import com.slack.api.model.User;
+import com.slack.api.model.block.Blocks;
+import com.slack.api.model.block.LayoutBlock;
+import com.slack.api.model.block.SectionBlock;
+import com.slack.api.model.block.element.StaticSelectElement;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +32,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.web.servlet.ServletComponentScan;
 import org.springframework.context.annotation.Bean;
+import org.springframework.scheduling.annotation.Scheduled;
 
 @SpringBootApplication
 @ServletComponentScan
@@ -41,7 +46,8 @@ public class DemoApplication {
   @Bean
   App app(
       @Value("${slack-bot-token}") String slackBotToken,
-      @Value("${slack-signing-secret}") String slackSigningSecret) {
+      @Value("${slack-signing-secret}") String slackSigningSecret)
+      throws IOException, SlackApiException {
 
     App app =
         new App(
@@ -50,162 +56,159 @@ public class DemoApplication {
                 .signingSecret(slackSigningSecret)
                 .build());
 
-    app.globalShortcut(
-        "bug-form",
-        (req, ctx) -> {
-          ViewsOpenResponse viewsOpenRes =
-              ctx.client().viewsOpen(r -> r.triggerId(ctx.getTriggerId()).view(buildView()));
-
-          if (viewsOpenRes.isOk()) return ctx.ack();
-          else return Response.builder().statusCode(500).body(viewsOpenRes.getError()).build();
-        });
-
-    app.viewClosed(
-        "bug-form",
+    app.blockAction(
+        Pattern.compile("ticket-progress-selection-action-\\d{1,5}"),
         (req, ctx) -> {
           return ctx.ack();
         });
 
     app.blockAction(
-        "bug-status-selection-action",
+        "form-submit-action",
         (req, ctx) -> {
+          logForm(req);
+
+          var channel = req.getPayload().getContainer().getChannelId();
+          var ts = req.getPayload().getMessage().getTs();
+
+          app.getClient()
+              .chatUpdate(
+                  chatUpdate ->
+                      chatUpdate.channel(channel).ts(ts).text("Thanks for submitting the form!"));
+
           return ctx.ack();
         });
 
-    app.blockAction(
-        "bug-priority-selection-action",
-        (req, ctx) -> {
-          return ctx.ack();
-        });
-
-    app.blockAction(
-        "bug-found-datetime-action",
-        (req, ctx) -> {
-          return ctx.ack();
-        });
-
-    app.viewSubmission(
-        "bug-form",
-        (req, ctx) -> {
-          var payloadValues = req.getPayload().getView().getState().getValues();
-
-          LOG.info(
-              """
-              {}
-              Bug Request Form:
-              Bug Found on: {}
-              Bug Status: {}
-              Bug Priority: {}
-              Description: {}
-              Reproduction Steps: {}
-              """,
-              System.lineSeparator(),
-              Instant.ofEpochSecond(
-                  Long.valueOf(
-                      payloadValues
-                          .get("bug-found-datetime-block")
-                          .get("bug-found-datetime-action")
-                          .getSelectedDateTime())),
-              payloadValues
-                  .get("bug-status-block")
-                  .get("bug-status-selection-action")
-                  .getSelectedOption()
-                  .getText()
-                  .getText(),
-              payloadValues
-                  .get("bug-priority-block")
-                  .get("bug-priority-selection-action")
-                  .getSelectedOption()
-                  .getText()
-                  .getText(),
-              payloadValues.get("bug-desc-block").get("bug-desc-action").getValue(),
-              payloadValues.get("bug-repr-steps-block").get("bug-repr-steps-action").getValue());
-
-          return ctx.ack();
-        });
+    scheduleForms(app);
 
     return app;
   }
 
-  private static View buildView() {
-    return view(
-        view ->
-            view.callbackId("bug-form")
-                .type("modal")
-                .notifyOnClose(true)
-                .title(
-                    viewTitle(
-                        title -> title.type("plain_text").text("Bug Submission Form").emoji(true)))
-                .submit(viewSubmit(submit -> submit.type("plain_text").text("Submit").emoji(true)))
-                .close(viewClose(close -> close.type("plain_text").text("Cancel").emoji(true)))
-                .blocks(
-                    asBlocks(
-                        input(
-                            input ->
-                                input
-                                    .blockId("bug-found-datetime-block")
-                                    .label(plainText(pt -> pt.text("Buf Found On")))
-                                    .element(
-                                        datetimePicker(
-                                            datePicker ->
-                                                datePicker.actionId("bug-found-datetime-action")))),
-                        section(
-                            section ->
-                                section
-                                    .blockId("bug-status-block")
-                                    .text(markdownText("Status of the Bug Fixing"))
-                                    .accessory(
-                                        staticSelect(
-                                            staticSelect ->
-                                                staticSelect
-                                                    .actionId("bug-status-selection-action")
-                                                    .placeholder(plainText("Status"))
-                                                    .initialOption(
-                                                        option(plainText("To Fix"), "to-fix"))
-                                                    .options(
-                                                        asOptions(
-                                                            option(plainText("To Fix"), "to-fix"),
-                                                            option(
-                                                                plainText("In Progress"),
-                                                                "in-progress"),
-                                                            option(
-                                                                plainText("Completed"),
-                                                                "completed")))))),
-                        section(
-                            section ->
-                                section
-                                    .blockId("bug-priority-block")
-                                    .text(markdownText("Bug Priority"))
-                                    .accessory(
-                                        staticSelect(
-                                            staticSelect ->
-                                                staticSelect
-                                                    .actionId("bug-priority-selection-action")
-                                                    .placeholder(plainText("Priority"))
-                                                    .initialOption(option(plainText("Low"), "low"))
-                                                    .options(
-                                                        asOptions(
-                                                            option(plainText("Low"), "low"),
-                                                            option(plainText("Medium"), "medium"),
-                                                            option(plainText("High"), "high")))))),
-                        input(
-                            input ->
-                                input
-                                    .blockId("bug-desc-block")
-                                    .label(plainText(pt -> pt.text("Describe the Bug").emoji(true)))
-                                    .element(
-                                        plainTextInput(
-                                            pti ->
-                                                pti.actionId("bug-desc-action").multiline(true)))),
-                        input(
-                            input ->
-                                input
-                                    .blockId("bug-repr-steps-block")
-                                    .label(plainText(pt -> pt.text("Bug Reproduction Steps")))
-                                    .element(
-                                        plainTextInput(
-                                            pti ->
-                                                pti.actionId("bug-repr-steps-action")
-                                                    .multiline(true)))))));
+  @Scheduled(cron = "0 18 * * *")
+  private void scheduleForms(App app) throws IOException, SlackApiException {
+    var client = app.getClient();
+
+    UsersListResponse usersList = client.usersList(UsersListRequest.builder().build());
+    var members = usersList.getMembers();
+
+    for (User user : members) {
+      if (!user.isEmailConfirmed()) {
+        continue;
+      }
+      var resp =
+          client.chatPostMessage(
+              chat ->
+                  chat.channel(user.getId())
+                      .text("Ticket Progress")
+                      .blocks(bildTicketBlocks(getMockTickets())));
+      LOG.info(
+          """
+          Sent a Message
+          Status IsOk: {}
+          Errors: {}
+          Error Response: {}
+          To Channel: {}
+          """,
+          resp.isOk(),
+          resp.getError(),
+          resp.getResponseMetadata(),
+          resp.getChannel());
+    }
+  }
+
+  private List<String> getMockTickets() {
+    return List.of(
+        "Fix ui on the front page",
+        "Develop implementation of the scheduler",
+        "Fix deployment issues");
+  }
+
+  private static List<LayoutBlock> bildTicketBlocks(List<String> tickets) {
+
+    var header =
+        Blocks.header(
+            h -> h.blockId("header-block").text(plainText(pt -> pt.text("Tickets Progress Form"))));
+
+    var sections = new ArrayList<SectionBlock>();
+    for (String ticket : tickets) {
+
+      sections.add(
+          section(
+              s ->
+                  s.blockId("ticket-progress-block-" + sections.size())
+                      .text(markdownText(ticket))
+                      .accessory(
+                          staticSelect(
+                              staticSelect ->
+                                  staticSelect
+                                      .actionId(
+                                          "ticket-progress-selection-action-" + sections.size())
+                                      .placeholder(plainText("Status"))
+                                      .initialOption(
+                                          option(plainText("In Progress"), "in-progress"))
+                                      .options(
+                                          asOptions(
+                                              option(plainText("Blocked"), "blocked"),
+                                              option(plainText("In Progress"), "in-progress"),
+                                              option(plainText("Completed"), "completed")))))));
+    }
+
+    var input =
+        input(
+            i ->
+                i.blockId("ticket-issues-block")
+                    .label(
+                        plainText(
+                            pt -> pt.text("Is there anything preventing you from moving forward?")))
+                    .element(
+                        plainTextInput(
+                            pti -> pti.actionId("ticket-issues-action").multiline(true))));
+    var submit =
+        Blocks.actions(
+            List.of(
+                button(
+                    button ->
+                        button
+                            .actionId("form-submit-action")
+                            .text(plainText(pt -> pt.text("Submit"))))));
+
+    List<LayoutBlock> lay = new ArrayList<>();
+    lay.add(header);
+    lay.addAll(sections);
+    lay.add(input);
+    lay.add(submit);
+
+    return lay;
+  }
+
+  private void logForm(BlockActionRequest req) {
+    var values = req.getPayload().getState().getValues();
+    var blocks = req.getPayload().getMessage().getBlocks();
+
+    var sb = new StringBuilder();
+    sb.append(System.lineSeparator())
+        .append(System.lineSeparator())
+        .append("Ticket Progress Form")
+        .append(System.lineSeparator());
+
+    for (LayoutBlock layoutBlock : blocks) {
+      if (layoutBlock.getType().equals("section")) {
+        var sectionBlock = (SectionBlock) layoutBlock;
+        var secId =
+            values
+                .get(sectionBlock.getBlockId())
+                .get(((StaticSelectElement) sectionBlock.getAccessory()).getActionId())
+                .getSelectedOption()
+                .getText()
+                .getText();
+
+        sb.append(sectionBlock.getText().getText()).append(" : ");
+        sb.append(secId).append(System.lineSeparator());
+      }
+    }
+
+    sb.append("What holds up? : ");
+    sb.append(values.get("ticket-issues-block").get("ticket-issues-action").getValue())
+        .append(System.lineSeparator());
+    LOG.info(sb.toString());
   }
 }
