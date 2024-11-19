@@ -23,4 +23,8 @@ In order to received the callback a request url should be set for the bot on sla
 The callback url should be accessible from the internet in order for Slack to send requests to it. I used [ngrok](https://dashboard.ngrok.com/get-started/setup/linux) to implement it.
 
 
-https://github.com/user-attachments/assets/9ef0d151-f7f1-47fb-97fb-f0b6e2c29d51
+
+
+https://github.com/user-attachments/assets/b8aefe6e-2b2d-4c58-8044-c4dc61d28ff5
+
+
